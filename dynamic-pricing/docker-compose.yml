@@ -11,6 +11,6 @@ services:
     volumes:
       - .:/rails
     environment:
-      - RATE_API_URL=http://172.18.0.2:8080
+      - RATE_API_URL=http://rate-api:8080
     depends_on:
       - rate-api
