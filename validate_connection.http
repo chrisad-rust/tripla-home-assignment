@@ -1,0 +1,35 @@
+POST http://localhost:8080/pricing
+Content-Type: application/json
+token: 04aa6f42aa03f220c2ae9a276cd68c62
+
+{
+  "attributes": [
+    {
+      "period": "Summer",
+      "hotel": "FloatingPointResort",
+      "room": "SingletonRoom"
+    },
+    {
+      "period": "Autumn",
+      "hotel": "FloatingPointResort",
+      "room": "SingletonRoom"
+    },
+    {
+      "period": "Winter",
+      "hotel": "FloatingPointResort",
+      "room": "SingletonRoom"
+    },
+    {
+      "period": "Spring",
+      "hotel": "FloatingPointResort",
+      "room": "SingletonRoom"
+    }
+  ]
+}
+
+###
+
+GET http://localhost:3000/api/v1/pricing
+?period=Summer
+&hotel=FloatingPointResort
+&room=SingletonRoom
