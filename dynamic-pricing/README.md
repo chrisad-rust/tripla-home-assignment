@@ -2,81 +2,86 @@
    <img src="/img/logo.svg?raw=true" width=600 style="background-color:white;">
 </div>
 
-# Backend Engineering Take-Home Assignment: Dynamic Pricing Proxy
+# Solution to the “Dynamic Pricing Proxy” Take-Home Assignment
 
-Welcome to the Tripla backend engineering take-home assignment\! 🧑‍💻 This exercise is designed to simulate a real-world problem you might encounter as part of our team.
+For the challenge description, please see the instructions [here](/dynamic-pricing/INSTRUCTION_README.md).
 
-⚠️ **Before you begin**, please review the main [FAQ](/README.md#frequently-asked-questions). It contains important information, **including our specific guidelines on how to submit your solution.**
+This document describes my approach, design decisions, and the reasoning behind the implementation of the Dynamic Pricing Proxy.
 
-## The Challenge
-
-At Tripla, we use a dynamic pricing model for hotel rooms. Instead of static, unchanging rates, our model uses a real-time algorithm to adjust prices based on market demand and other data signals. This helps us maximize both revenue and occupancy.
-
-Our Data and AI team built a powerful model to handle this, but its inference process is computationally expensive to run. To make this product more cost-effective, we analyzed the model's output and found that a calculated room rate remains effective for up to 5 minutes.
-
-This insight presents a great optimization opportunity, and that's where you come in.
-
-## Your Mission
-
-Your mission is to build an efficient service that acts as an intermediary to our dynamic pricing model. This service will be responsible for providing rates to our users while respecting the operational constraints of the expensive model behind it.
-
-You will start with a Ruby on Rails application that is already integrated with our dynamic pricing model. However, the current implementation fetches a new rate for every single request. Your mission is to ensure this service handles the pricing models' constraints.
-
-## Core Requirements
-
-1. Review the pricing model's API and its constraints. The model's docker image and documentation are hosted on dockerhub:  [tripladev/rate-api](https://hub.docker.com/r/tripladev/rate-api).
-
-2. Ensure rate validity. A rate fetched from the pricing model is considered valid for 5 minutes. Your service must ensure that any rate it provides for a given set of parameters (`period`, `hotel`, `room`) is no older than this 5-minute window.
-
-3. Honor throughput requirements. Your solution must be able to handle at least 10,000 requests per day from our users while using a single API token.
-
-## How We'll Evaluate Your Work
-
-This isn't just about getting the right answer. We're excited to see how you approach the problem. Treat this as you would a production-ready feature.
-
-  * We'll be looking for clean, well-structured, and testable code. Feel free to add dependencies or refactor the existing scaffold as you see fit.
-  * How do you decide on your approach to meeting the performance and cost requirements? Documenting your thought process is a great way to share this.
-  * A reliable service anticipates failure. How does your service behave if the pricing model is slow, or returns an error? Providing descriptive error messages to the end-user is a key part of a robust API.
-  * We want to see how you work around constraints and navigate an existing codebase to deliver a solution.
+Whenever possible, I try to follow standard Rails conventions and concepts in order to keep the implementation maintainable and easy to understand.
 
 
-## Minimum Deliverables
+## Requirements
 
-1.  A link to your Git repository containing the complete solution.
-2.  Clear instructions in the `README.md` on how to build, test, and run your service.
-
-We highly value seeing your thought process. A great submission will also include documentation (e.g., in the `README.md`) discussing the design choices you made. Consider outlining different approaches you considered, their potential tradeoffs, and a clear rationale for why you chose your final solution.
-
-## Development Environment Setup
-
-The project scaffold is a minimal Ruby on Rails application with a `/api/v1/pricing` endpoint. While you're free to configure your environment as you wish, this repository is pre-configured for a Docker-based workflow that supports live reloading for your convenience.
-
-The provided `Dockerfile` builds a container with all necessary dependencies. Your local code is mounted directly into the container, so any changes you make on your machine will be reflected immediately. Your application will need to communicate with the external pricing model, which also runs in its own Docker container.
-
-### Quick Start Guide
-
-Here is a list of common commands for building, running, and interacting with the Dockerized environment.
-
-```bash
-
-# --- 1. Build & Run The Main Application ---
-# Build and run the Docker compose
-docker compose up -d --build
-
-# --- 2. Test The Endpoint ---
-# Send a sample request to your running service
-curl 'http://localhost:3000/api/v1/pricing?period=Summer&hotel=FloatingPointResort&room=SingletonRoom'
-
-# --- 3. Run Tests ---
-# Run the full test suite
-docker compose exec interview-dev ./bin/rails test
-
-# Run a specific test file
-docker compose exec interview-dev ./bin/rails test test/controllers/pricing_controller_test.rb
-
-# Run a specific test by name
-docker compose exec interview-dev ./bin/rails test test/controllers/pricing_controller_test.rb -n test_should_get_pricing_with_all_parameters
-```
+The solution must compensate for the slow performance of the external rate API while ensuring that the price rates are cached for no longer than five minutes. Incoming requests must be validated to ensure correct parameters and valid rate lifetimes. The service should return results as quickly as possible and provide clear error responses if a request cannot be processed.
 
 
-Good luck, and we look forward to seeing what you build\!
+## Architecture Overview
+
+To avoid the latency of the external rate API during request processing, the system caches all possible rate data. These price rates are refreshed periodically in the background and then served directly from the data store.
+
+The design separates the system into three responsibilities: 
+- fetching price rates from the external API, 
+- storing the retrieved data, 
+- and serving requests using the cached data. 
+
+This approach ensures that request latency is not affected by the performance of the upstream service.
+
+
+## Background Rate Fetching
+
+Since the external API is sometimes relatively slow, price rates are retrieved asynchronously using a background job. Because the background process cannot predict which rates will be requested by clients, it retrieves the full set of available rates and updates the storage.
+
+In Rails, asynchronous tasks are typically implemented using **ActiveJob**, which provides a unified interface for background processing frameworks.
+
+The update job is scheduled using a time-based trigger rather than being initiated by user requests. This decision was made because the expected request volume is unknown and the cache freshness requirement specifies a maximum age of five minutes for stored price rates.
+
+For scheduling the background task I chose **sidekiq-cron**. This scheduler integrates well with **Sidekiq** and **ActiveJob** and provides reliable time-based execution of background jobs. The update job is currently scheduled to run once per minute. Running the job at this interval ensures that cached price rates remain within the allowed freshness window even if an individual update attempt fails.
+
+
+## Rate Storage and Caching
+
+Exchange rates are stored using **ActiveRecord** with the existing SQL database backend. This approach integrates naturally with Rails and requires minimal additional infrastructure. Persisting the data in the database also allows the system to be extended later to support historical rate tracking or auditing.
+
+Other caching solutions such as Redis could also be considered. Redis would provide faster in-memory access and could be beneficial for systems with very high request volumes. In this implementation, however, a SQL-based solution was chosen because it simplifies persistence and fits well with the existing Rails data model.
+
+
+## Data Validation
+
+Incoming requests are validated at the API boundary. Parameters such as hotel, room, and period are checked before processing the request. The system also verifies that a valid rate exists within the allowed freshness window.
+
+The freshness check is based on the timestamp of the most recent successful rate update job. Because all rates are fetched together during the update process, they share the same validity window.
+
+## Fast Response Strategy
+
+To ensure fast responses, the API endpoint retrieves price rates using a single optimized database query that selects the most recent valid rate within the allowed time range.
+
+Because the price rates are already stored, the service does not need to call the external API while processing user requests. This removes the dependency on the upstream API latency and allows responses to be returned quickly and consistently.
+
+## Error Handling
+
+Failures that occur during the background update process are recorded and stored together with the corresponding update job. This information can be used to diagnose problems with the external rate API.
+
+If no valid exchange rate is available when a request is processed, the service returns an appropriate error response. The next scheduled update job will attempt to refresh the rates again.
+
+## Trade-offs
+
+The chosen design favors simplicity and reliability over maximum efficiency. Fetching all price rates periodically guarantees that the required data is available, but it may result in unnecessary API calls if only a small subset of rates is actually requested.
+
+Using the SQL database for caching simplifies integration with Rails and allows the data to be persisted. However, it may not perform as well as a dedicated in-memory cache under very high load.
+
+The time-based refresh strategy ensures predictable cache freshness, although it may retrieve data that is not immediately used.
+
+## Implementation Steps
+
+The implementation follows a test-driven approach in which each component is introduced by first defining the expected behavior in tests and then implementing the corresponding functionality.
+
+- [ ] Define database models for `PriceRate` and `PriceRateUpdateInfo`
+- [ ] Write tests that verify the persistence and retrieval of rate and update job data
+- [ ] Implement the persistence logic required for storing and querying price rates
+- [ ] Write tests for the background update job that validate correct interaction with the rate API and proper storage of results
+- [ ] Implement the background update job
+- [ ] Configure the scheduler to run the update job every minute
+- [ ] Write tests for the rate query service covering valid responses, cache freshness checks, and error cases
+- [ ] Implement the rate query service and request validation
+- [ ] Ensure all components are covered by automated tests
