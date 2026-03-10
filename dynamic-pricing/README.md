@@ -76,7 +76,7 @@ The time-based refresh strategy ensures predictable cache freshness, although it
 
 The implementation follows a test-driven approach in which each component is introduced by first defining the expected behavior in tests and then implementing the corresponding functionality.
 
-- [ ] Define database models for `PriceRate` and `PriceRateUpdateInfo`
+- [x] Define database models for `PriceRate` and `PriceRateUpdateInfo`
 - [ ] Write tests that verify the persistence and retrieval of rate and update job data
 - [ ] Implement the persistence logic required for storing and querying price rates
 - [ ] Write tests for the background update job that validate correct interaction with the rate API and proper storage of results
