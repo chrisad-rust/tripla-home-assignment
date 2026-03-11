@@ -2,86 +2,228 @@
    <img src="/img/logo.svg?raw=true" width=600 style="background-color:white;">
 </div>
 
-# Solution to the “Dynamic Pricing Proxy” Take-Home Assignment
+# Dynamic Pricing Proxy – Solution
+
+This repository contains my solution for the Dynamic Pricing Proxy take-home assignment.
 
 For the challenge description, please see the instructions [here](/dynamic-pricing/INSTRUCTION_README.md).
 
-This document describes my approach, design decisions, and the reasoning behind the implementation of the Dynamic Pricing Proxy.
+The goal of this service is to provide fast access to dynamic price rates while compensating for the potentially slow response times of an external rate API.
 
-Whenever possible, I try to follow standard Rails conventions and concepts in order to keep the implementation maintainable and easy to understand.
+To achieve this, the system periodically fetches rate data from the upstream service and caches it. 
+Client requests are then served directly from the cached data, avoiding the latency of the external API.
 
+The implementation follows standard conventions of Ruby on Rails to keep the solution simple and maintainable.
 
 ## Requirements
 
-The solution must compensate for the slow performance of the external rate API while ensuring that the price rates are cached for no longer than five minutes. Incoming requests must be validated to ensure correct parameters and valid rate lifetimes. The service should return results as quickly as possible and provide clear error responses if a request cannot be processed.
+The system is designed with the following goals:
+- Fast response times independent of upstream API latency
+- Guarantees cache freshness (<= 5 minutes)
+- Stable responses even if the upstream service fails
+- Clear failure behavior
 
+## Assumptions
+
+The implementation assumes:
+- the number of rate combinations is reasonably small and can be fully refreshed periodically
+- the external API allows periodic full retrieval
+- the update job completes within the scheduling interval
 
 ## Architecture Overview
 
-To avoid the latency of the external rate API during request processing, the system caches all possible rate data. These price rates are refreshed periodically in the background and then served directly from the data store.
+Calling the external API during request processing would introduce unpredictable latency and potential request failures.
+By periodically synchronizing rate data in the background, request handling becomes deterministic and independent of the upstream API performance.
 
 The design separates the system into three responsibilities: 
-- fetching price rates from the external API, 
-- storing the retrieved data, 
-- and serving requests using the cached data. 
+1. Fetching price rates from the external API
+2. Storing the retrieved rates
+3. Serving client requests using cached data
+
+### System Flow
+
+```
+    Rate API
+        │
+        ▼
+Background Update Job
+        │
+        ▼
+Database (cached rates)
+        │
+        ▼
+   Pricing proxy
+        │
+        ▼
+      Client
+```
 
 This approach ensures that request latency is not affected by the performance of the upstream service.
 
-
 ## Background Rate Fetching
 
-Since the external API is sometimes relatively slow, price rates are retrieved asynchronously using a background job. Because the background process cannot predict which rates will be requested by clients, it retrieves the full set of available rates and updates the storage.
+Because the external API may respond slowly, rate data is fetched asynchronously using a background job.
 
-In Rails, asynchronous tasks are typically implemented using **ActiveJob**, which provides a unified interface for background processing frameworks.
+The background job retrieves the complete set of available price rates and stores them in the database. This ensures that the service can answer requests immediately using cached data.
 
-The update job is scheduled using a time-based trigger rather than being initiated by user requests. This decision was made because the expected request volume is unknown and the cache freshness requirement specifies a maximum age of five minutes for stored price rates.
+The update job runs periodically using a cron-style scheduler.
 
-For scheduling the background task I chose **sidekiq-cron**. This scheduler integrates well with **Sidekiq** and **ActiveJob** and provides reliable time-based execution of background jobs. The update job is currently scheduled to run once per minute. Running the job at this interval ensures that cached price rates remain within the allowed freshness window even if an individual update attempt fails.
+### Scheduling
 
+The system uses:
+
+- **ActiveJob** for background job abstraction
+- **Sidekiq** for background processing
+- **sidekiq-cron** for scheduled execution
+
+The update job runs once per minute. This interval ensures that cached rates remain within the five-minute freshness requirement even if an update attempt temporarily fails.
+
+### Concurrency Considerations
+
+Rates retrieved from the external API are written to the database in batch inserts.
+
+Existing rows are never updated. This approach provides two benefits:
+- queries always operate on a consistent snapshot
+- race conditions between reads and updates are avoided
+
+In the unlikely event that update jobs overlap, additional batches may be inserted.
+Since queries always select the most recent valid data, this does not affect correctness.
 
 ## Rate Storage and Caching
 
-Exchange rates are stored using **ActiveRecord** with the existing SQL database backend. This approach integrates naturally with Rails and requires minimal additional infrastructure. Persisting the data in the database also allows the system to be extended later to support historical rate tracking or auditing.
+Exchange rates are stored using the existing SQL database through the standard Rails persistence layer.
 
-Other caching solutions such as Redis could also be considered. Redis would provide faster in-memory access and could be beneficial for systems with very high request volumes. In this implementation, however, a SQL-based solution was chosen because it simplifies persistence and fits well with the existing Rails data model.
+Benefits of this approach include:
+- seamless integration with the Rails application
+- persistent storage of rate data
+- simple schema management
+- potential extension to historical tracking
 
+An alternative approach would be using an in-memory cache such as Redis. While Redis could provide faster access under heavy load, a SQL-based solution was chosen for simplicity and easier integration with the Rails data model.
 
 ## Data Validation
 
-Incoming requests are validated at the API boundary. Parameters such as hotel, room, and period are checked before processing the request. The system also verifies that a valid rate exists within the allowed freshness window.
+Incoming requests are validated at the API boundary.
 
-The freshness check is based on the timestamp of the most recent successful rate update job. Because all rates are fetched together during the update process, they share the same validity window.
+The following parameters are checked:
+- hotel identifier (FloatingPointResort, GitawayHotel, RecursionRetreat)
+- room type (SingletonRoom, BooleanTwin, RestfulKing)
+- booking period (Summer, Autumn, Winter, Spring)
+- existence of a valid rate
+
+Additionally, the system verifies that the returned rate was fetched within the allowed freshness window of five minutes.
+Because the update job fetches all rates at once, all rates share the same validity window.
 
 ## Fast Response Strategy
 
-To ensure fast responses, the API endpoint retrieves price rates using a single optimized database query that selects the most recent valid rate within the allowed time range.
+To ensure minimal latency for client requests:
+- the service never calls the external API during request processing
+- cached data is queried directly from the database
 
-Because the price rates are already stored, the service does not need to call the external API while processing user requests. This removes the dependency on the upstream API latency and allows responses to be returned quickly and consistently.
+Each request retrieves the most recent valid rate using a single optimized query.
+This approach guarantees fast and consistent response times regardless of upstream API performance.
 
 ## Error Handling
 
-Failures that occur during the background update process are recorded and stored together with the corresponding update job. This information can be used to diagnose problems with the external rate API.
+Failures during the background update process are recorded and stored together with update metadata. This allows issues with the external API to be diagnosed.
 
-If no valid exchange rate is available when a request is processed, the service returns an appropriate error response. The next scheduled update job will attempt to refresh the rates again.
+When processing client requests:
+- if a valid rate exists within the allowed freshness window, it is returned
+- if no valid rate is available, the service returns an error response
+
+This ensures that clients never receive stale data that violates the freshness requirement.
+
+## Data Cleanup
+
+Since rate updates are stored as batches, older data must be removed periodically.
+A cleanup job deletes all records older than five minutes to ensure that the database does not grow indefinitely.
+This job runs periodically and keeps the dataset limited to the currently valid rate window.
 
 ## Trade-offs
 
-The chosen design favors simplicity and reliability over maximum efficiency. Fetching all price rates periodically guarantees that the required data is available, but it may result in unnecessary API calls if only a small subset of rates is actually requested.
+The chosen design favors simplicity and reliability over maximum efficiency.
 
-Using the SQL database for caching simplifies integration with Rails and allows the data to be persisted. However, it may not perform as well as a dedicated in-memory cache under very high load.
+### Periodic full refresh
 
-The time-based refresh strategy ensures predictable cache freshness, although it may retrieve data that is not immediately used.
+Fetching all rates periodically guarantees that required data is available but may result in unnecessary API calls if only a subset of rates is requested.
+
+### SQL-based caching
+
+Using the SQL database simplifies integration with Rails and allows persistent storage, but may not match the performance of an in-memory cache under extremely high load.
+
+### Time-based refresh strategy
+
+Running the update job periodically ensures predictable cache freshness, even if the external API temporarily fails.
+
+## Possible Future Improvements
+
+- Use Redis for high-performance caching in high-traffic scenarios.
+- Add monitoring for background job failures, so that issues with the upstream API can be detected quickly.
+- Introduce distributed locking to avoid overlapping update jobs.
+- Extend the system to support historical rate tracking.
+- Request data from Rate API in batches to reduce network package size. 
 
 ## Implementation Steps
 
 The implementation follows a test-driven approach in which each component is introduced by first defining the expected behavior in tests and then implementing the corresponding functionality.
 
 - [x] Define database models for `PriceRate` and `PriceRateUpdateInfo`
-- [ ] Write tests that verify the persistence and retrieval of rate and update job data
-- [ ] Implement the persistence logic required for storing and querying price rates
+- [x] Write tests that verify the persistence and retrieval of rate and update job data
+- [x] Implement the persistence logic required for storing and querying price rates
 - [ ] Write tests for the background update job that validate correct interaction with the rate API and proper storage of results
 - [ ] Implement the background update job
 - [ ] Configure the scheduler to run the update job every minute
 - [ ] Write tests for the rate query service covering valid responses, cache freshness checks, and error cases
 - [ ] Implement the rate query service and request validation
+- [ ] Write tests for the background cleanup job that reduced all data that is older than 5 minutes.
+- [ ] Implement the background cleanup job
 - [ ] Ensure all components are covered by automated tests
+
+# Setup
+
+# Usage
+
+```bash
+# --- 1. Build & Run The Main Application ---
+# Build and run the Docker compose
+docker compose up -d --build interview-dev
+
+# --- 2. Setup database ---
+# Migrate the database schema
+docker compose exec interview-dev ./bin/rails db:migrate
+
+# --- 3. Test The Endpoint ---
+# Send a sample request to your running service
+curl 'http://localhost:3000/api/v1/pricing?period=Summer&hotel=FloatingPointResort&room=SingletonRoom'
+
+# --- 4. Run Tests ---
+# Run the full test suite
+docker compose exec interview-dev ./bin/rails test
+
+# Run a specific test file
+docker compose exec interview-dev ./bin/rails test test/controllers/pricing_controller_test.rb
+
+# Run a specific test by name
+docker compose exec interview-dev ./bin/rails test test/controllers/pricing_controller_test.rb -n test_should_get_pricing_with_all_parameters
+```
+
+### Request
+```bash
+GET http://localhost:3000/api/v1/pricing?period=Summer&hotel=FloatingPointResort&room=SingletonRoom
+```
+### Successful Response
+```json
+{
+  "rate": 29100
+}
+```
+### Error Response
+```json
+{
+  "error": "An unexpected internal error occurred"
+}
+```
+Errors may occur when:
+- parameters are invalid
+- no cached rate exists
+- the cached data is older than five minutes
