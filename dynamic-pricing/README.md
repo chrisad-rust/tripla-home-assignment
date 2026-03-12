@@ -173,11 +173,11 @@ The implementation follows a test-driven approach in which each component is int
 - [x] Implement the persistence logic required for storing and querying price rates
 - [x] Write tests for the background update job that validate correct interaction with the rate API and proper storage of results
 - [x] Implement the background update job
-- [ ] Configure the scheduler to run the update job every minute
-- [ ] Write tests for the rate query service covering valid responses, cache freshness checks, and error cases
-- [ ] Implement the rate query service and request validation
+- [x] Write tests for the rate query service covering valid responses, cache freshness checks, and error cases
+- [x] Implement the rate query service and request validation
 - [ ] Write tests for the background cleanup job that reduced all data that is older than 5 minutes.
 - [ ] Implement the background cleanup job
+- [ ] Configure the scheduler to run the jobs
 
 ## Setup
 

@@ -21,7 +21,7 @@ class PriceRate < ApplicationRecord
   # This is used by the API to respond quickly with a valid cached rate
   scope :best_rate, ->(lookup_hash) {
       eager_load(:update_info)
-      .where(lookup_hash: 1)
+      .where(lookup_hash: lookup_hash)
       .merge(PriceRateUpdateInfo.successful)
       .merge(PriceRateUpdateInfo.recent)
       .limit(1)

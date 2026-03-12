@@ -1,47 +1,116 @@
 require "test_helper"
 require "ostruct"
 
+# Api::V1::PricingControllerTest
+#
+# Integration tests for the Pricing API endpoint.
+# 
+# Responsibilities:
+# - Validate correct JSON response when a rate is available.
+# - Ensure proper error handling for:
+#   - Missing or invalid parameters
+#   - Background update jobs that fail or are missing
+#   - Rate API returning errors or malformed responses
+# - Mock the RateApiClient to simulate various external API responses.
+#
+# Usage:
+#   Tests run automatically with Rails' `rails test` command.
+#   Each test cleans up the PriceRate and PriceRateUpdateInfo tables to
+#   ensure isolation and repeatability.
+#
+# Note:
+#   - Uses OpenStruct to mock API responses.
+#   - Includes PriceRateParameters to compute lookup_hash values.
 class Api::V1::PricingControllerTest < ActionDispatch::IntegrationTest
-  test "should get pricing with all parameters" do
-    mock_body = {
-      'rates' => [
-        { 'period' => 'Summer', 'hotel' => 'FloatingPointResort', 'room' => 'SingletonRoom', 'rate' => '15000' }
-      ]
-    }.to_json
+  include PriceRateParameters
 
-    mock_response = OpenStruct.new(success?: true, body: mock_body)
+  # Cleanup database
+  setup do
+    PriceRate.delete_all
+    PriceRateUpdateInfo.delete_all
+  end
 
-    RateApiClient.stub(:get_rate, mock_response) do
-      get api_v1_pricing_url, params: {
-        period: "Summer",
-        hotel: "FloatingPointResort",
-        room: "SingletonRoom"
-      }
+  # Perform the background job with a mocked API client response
+  def run_job(body)
+    mock_response = OpenStruct.new(success?: true, body: body)
 
-      assert_response :success
-      assert_equal "application/json", @response.media_type
-
-      json_response = JSON.parse(@response.body)
-      assert_equal "15000", json_response["rate"]
+    RateApiClient.stub(:get_rates, mock_response) do
+      perform_enqueued_jobs do
+        UpdatePriceRatesJob.perform_later
+      end
+      
+      assert_performed_jobs 1
     end
   end
 
+  test "should get pricing with all parameters" do
+    run_job({
+      'rates' => [
+        { 'period' => 'Summer', 'hotel' => 'FloatingPointResort', 'room' => 'SingletonRoom', 'rate' => '15000' }
+      ]
+    }.to_json)
+
+    get api_v1_pricing_url, params: {
+      period: "Summer",
+      hotel: "FloatingPointResort",
+      room: "SingletonRoom"
+    }
+
+    assert_response :success
+    assert_equal "application/json", @response.media_type
+
+    json_response = JSON.parse(@response.body)
+    assert_equal 15000, json_response["rate"]
+  end
+
+  test "should return error when update job is down" do
+    get api_v1_pricing_url, params: {
+      period: "Summer",
+      hotel: "FloatingPointResort",
+      room: "SingletonRoom"
+    }
+
+    assert_response :bad_request
+    assert_equal "application/json", @response.media_type
+
+    json_response = JSON.parse(@response.body)
+    assert_includes json_response["error"], "Update job stopped."
+  end
+
+  test "should return error when rate is not available" do
+    run_job({
+      'rates' => [
+        { 'period' => 'Summer', 'hotel' => 'FloatingPointResort', 'room' => 'SingletonRoom', 'rate' => '15000' }
+      ]
+    }.to_json)
+
+    get api_v1_pricing_url, params: {
+      period: "Winter",
+      hotel: "FloatingPointResort",
+      room: "SingletonRoom"
+    }
+
+    assert_response :bad_request
+    assert_equal "application/json", @response.media_type
+
+    json_response = JSON.parse(@response.body)
+    assert_includes json_response["error"], "Rate not available."
+  end
+
   test "should return error when rate API fails" do
-    mock_response = OpenStruct.new(success?: false, body: { 'error' => 'Rate not found' })
+    run_job({ 'error' => 'Rate not found' }.to_json)
+    
+    get api_v1_pricing_url, params: {
+      period: "Summer",
+      hotel: "FloatingPointResort",
+      room: "SingletonRoom"
+    }
 
-    RateApiClient.stub(:get_rate, mock_response) do
-      get api_v1_pricing_url, params: {
-        period: "Summer",
-        hotel: "FloatingPointResort",
-        room: "SingletonRoom"
-      }
+    assert_response :bad_request
+    assert_equal "application/json", @response.media_type
 
-      assert_response :bad_request
-      assert_equal "application/json", @response.media_type
-
-      json_response = JSON.parse(@response.body)
-      assert_includes json_response["error"], "Rate not found"
-    end
+    json_response = JSON.parse(@response.body)
+    assert_includes json_response["error"], "Rate not found, Rating service is probably down."
   end
 
   test "should return error without any parameters" do
