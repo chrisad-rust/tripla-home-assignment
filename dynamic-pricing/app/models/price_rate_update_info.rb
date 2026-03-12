@@ -8,7 +8,7 @@
 #  see class PriceRate
 class PriceRateUpdateInfo < ApplicationRecord
     validates :executed_at, presence: true
-    has_many :price_rates
+    has_many :price_rates, foreign_key: "price_rate_update_infos_id", dependent: :delete_all
 
     # Scope: lookup success entries
     scope :successful, -> {
