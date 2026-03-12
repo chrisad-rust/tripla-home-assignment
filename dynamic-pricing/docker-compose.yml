@@ -1,4 +1,20 @@
 services:
+  redis:
+    image: redis:7
+    ports:
+      - "6379:6379"
+
+  background-worker:
+    build: .
+    command: bundle exec sidekiq -C config/sidekiq.yml
+    volumes:
+      - .:/rails
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - RATE_API_URL=http://rate-api:8080
+    depends_on:
+      - redis
+
   rate-api:
     image: tripladev/rate-api
     ports:
@@ -11,6 +27,8 @@ services:
     volumes:
       - .:/rails
     environment:
+      - REDIS_URL=redis://redis:6379/0
       - RATE_API_URL=http://rate-api:8080
     depends_on:
       - rate-api
+      - background-worker

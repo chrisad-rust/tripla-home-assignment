@@ -177,7 +177,7 @@ The implementation follows a test-driven approach in which each component is int
 - [x] Implement the rate query service and request validation
 - [x] Write tests for the background cleanup job that reduced all data that is older than 5 minutes.
 - [x] Implement the background cleanup job
-- [ ] Configure the scheduler to run the jobs
+- [x] Configure the scheduler to run the jobs
 
 ## Setup
 

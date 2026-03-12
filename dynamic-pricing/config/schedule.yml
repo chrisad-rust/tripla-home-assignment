@@ -1,0 +1,9 @@
+update_price_rates:
+  cron: "*/1 * * * *" # every minute       
+  class: "UpdatePriceRatesJob"
+  description: "Fetches and updates latest price rates every minute"
+
+cleanup_price_rates:
+  cron: "*/5 * * * *" # every 5 minutes
+  class: "CleanupPriceRatesJob"
+  description: "Deletes old price rates every 5 minutes"

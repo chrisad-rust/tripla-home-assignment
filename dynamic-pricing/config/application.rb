@@ -14,6 +14,9 @@ require "action_view/railtie"
 require "action_cable/engine"
 # require "rails/test_unit/railtie"
 
+require "sidekiq"
+require "sidekiq-cron"
+
 # Require the gems listed in Gemfile, including any gems
 # you've limited to :test, :development, or :production.
 Bundler.require(*Rails.groups)
@@ -40,5 +43,8 @@ module Interview
     # Middleware like session, flash, cookies can be added back manually.
     # Skip views, helpers and assets when generating a new resource.
     config.api_only = true
+
+    # Configure sidekiq as queue adapter
+    config.active_job.queue_adapter = :sidekiq
   end
 end

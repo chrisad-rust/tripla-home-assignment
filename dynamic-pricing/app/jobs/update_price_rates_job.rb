@@ -11,15 +11,16 @@
 # In case of any error during processing, an error entry
 # is recorded in PriceRateUpdateInfo instead of storing rates.
 class UpdatePriceRatesJob < ApplicationJob
-  queue_as :sidekiq
+  queue_as :default
   include PriceRateParameters
 
   def perform
+    Rails.logger.info("[PriceRateUpdate] Perform price rate update.")
     # request all rates
     rates = all_rate_params
     response = RateApiClient.get_rates(rates)
 
-    if response.nil? || response.body.nil? || response.body.empty?
+    if response.body.nil? || response.body.empty?
       store_error('Server not available.')
       return
     end
