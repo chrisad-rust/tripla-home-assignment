@@ -1,4 +1,5 @@
 require "test_helper"
+require "ostruct"
 
 class Api::V1::PricingControllerTest < ActionDispatch::IntegrationTest
   test "should get pricing with all parameters" do

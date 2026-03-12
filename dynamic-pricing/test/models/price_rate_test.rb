@@ -5,14 +5,14 @@ require "test_helper"
 class PriceRateTest < ActiveSupport::TestCase
   # Create a successful batch to associate rates with for all tests
   setup do
-    @update_info = PriceRateUpdateInfo.create!(successful: true, executed_at: 0.minutes.ago)
+    @update_info = PriceRateUpdateInfo.create!(successful: true, executed_at: Time.current)
   end
 
   # Test that a valid PriceRate with unique combination is allowed
   test "allows unique combination" do
-    @price_rate = PriceRate.create(lookup_hash: 1, rate: 50, update_info: @update_info)
-    assert @price_rate.valid?
-    assert @price_rate.persisted?
+    price_rate = PriceRate.create(lookup_hash: 1, rate: 50, update_info: @update_info)
+    assert price_rate.valid?
+    assert price_rate.persisted?
   end
 
   # Test that required fields are enforced at model and database level
@@ -44,9 +44,9 @@ class PriceRateTest < ActiveSupport::TestCase
   test "prevents duplicate combination" do
     PriceRate.create!(lookup_hash: 1, rate: 50, update_info: @update_info)
     
-    @duplicate = PriceRate.new(lookup_hash: 1, rate: 50, update_info: @update_info)
-    assert_not @duplicate.valid?
-    assert_includes @duplicate.errors[:lookup_hash], "has already been taken"
+    duplicate = PriceRate.new(lookup_hash: 1, rate: 50, update_info: @update_info)
+    assert_not duplicate.valid?
+    assert_includes duplicate.errors[:lookup_hash], "has already been taken"
 
     # ensure on middleware level
     assert_raises(ActiveRecord::RecordInvalid) do

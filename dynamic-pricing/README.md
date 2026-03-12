@@ -29,6 +29,7 @@ The implementation assumes:
 - the number of rate combinations is reasonably small and can be fully refreshed periodically
 - the external API allows periodic full retrieval
 - the update job completes within the scheduling interval
+- the availibility of the the rooms is given in a 5 minute time window 
 
 ## Architecture Overview
 
@@ -161,7 +162,7 @@ Running the update job periodically ensures predictable cache freshness, even if
 - Add monitoring for background job failures, so that issues with the upstream API can be detected quickly.
 - Introduce distributed locking to avoid overlapping update jobs.
 - Extend the system to support historical rate tracking.
-- Request data from Rate API in batches to reduce network package size. 
+- Request data from Rate API in batches to reduce network package size.
 
 ## Implementation Steps
 
@@ -170,18 +171,15 @@ The implementation follows a test-driven approach in which each component is int
 - [x] Define database models for `PriceRate` and `PriceRateUpdateInfo`
 - [x] Write tests that verify the persistence and retrieval of rate and update job data
 - [x] Implement the persistence logic required for storing and querying price rates
-- [ ] Write tests for the background update job that validate correct interaction with the rate API and proper storage of results
-- [ ] Implement the background update job
+- [x] Write tests for the background update job that validate correct interaction with the rate API and proper storage of results
+- [x] Implement the background update job
 - [ ] Configure the scheduler to run the update job every minute
 - [ ] Write tests for the rate query service covering valid responses, cache freshness checks, and error cases
 - [ ] Implement the rate query service and request validation
 - [ ] Write tests for the background cleanup job that reduced all data that is older than 5 minutes.
 - [ ] Implement the background cleanup job
-- [ ] Ensure all components are covered by automated tests
 
-# Setup
-
-# Usage
+## Setup
 
 ```bash
 # --- 1. Build & Run The Main Application ---
@@ -206,6 +204,8 @@ docker compose exec interview-dev ./bin/rails test test/controllers/pricing_cont
 # Run a specific test by name
 docker compose exec interview-dev ./bin/rails test test/controllers/pricing_controller_test.rb -n test_should_get_pricing_with_all_parameters
 ```
+
+## Usage
 
 ### Request
 ```bash

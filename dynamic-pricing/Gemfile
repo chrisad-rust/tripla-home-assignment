@@ -29,6 +29,12 @@ gem "bootsnap", require: false
 # HTTP client for external API call
 gem 'httparty'
 
+# Background job processing
+gem 'sidekiq'
+
+# Background job scheduler
+gem 'sidekiq-cron'
+
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin Ajax possible
 # gem "rack-cors"
 

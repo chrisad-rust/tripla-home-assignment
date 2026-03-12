@@ -24,7 +24,7 @@ class PriceRateUpdateInfo < ApplicationRecord
     # Ordered from newest to oldest.
     # Useful for serving the most recent batch to clients.
     scope :recent, -> {
-        where(executed_at: 5.minutes.ago..)
+        where(executed_at: 5.minutes.ago..Time.current)
         .order(PriceRateUpdateInfo.arel_table[:executed_at].desc)
     }
 end
