@@ -14,16 +14,14 @@ jobs:
         working-directory: ./dynamic-pricing
     steps:
     - uses: actions/checkout@v4
+    - name: Migrate Database
+      run: docker compose run --rm interview-dev ./bin/rails db:migrate 
     - name: Start services
       run: docker compose up -d --build interview-dev
     - name: Docker info
       run: docker info
     - name: Docker ps
       run: docker ps
-    - name: Prepare database
-      run: docker compose run --rm interview-dev ./bin/rails db:migrate
-    - name: Restart services
-      run: docker compose up -d
     - name: Run all tests
       run: docker compose exec interview-dev ./bin/rails test
     - name: Test API endpoint returns 200
